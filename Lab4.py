@@ -24,13 +24,13 @@ import os
 # You may need to define the Tree node and add extra helper functions here
 
 class TreeNode:
-        """
-        This is the class for Tree Node
-        """
-        def __init__(self):
-                self.attribute = None
-                self.children = {}
-                self.label = None
+    """
+    This is the class for Tree Node
+    """
+    def __init__(self):
+        self.attribute = None
+        self.children = {}
+        self.label = None
 
 def DTtrain(data, model):
     """
@@ -38,11 +38,117 @@ def DTtrain(data, model):
     First is to read the training data, 
     and then build the decision tree model
     """
+    training_data = pd.read_csv(data)
 
+    def build_tree(data, used_attributes=None):
+        """
+        This is the function to build the decision tree
+        """
+        if used_attributes is None:
+            used_attributes = set()
+            
+        if len(data) == 0:
+            node = TreeNode()
+            node.label = get_majority_class(training_data) 
+            return node
+            
+        if all_same_class(data):
+            node = TreeNode()
+            node.label = data.iloc[0, -1]
+            return node
+        
+        # Finding the best attribute to split the data
+        best_attribute = find_best_attribute(data, used_attributes)
+        if best_attribute is None:
+            node = TreeNode()
+            node.label = get_majority_class(data)
+            return node
+        
+        tree = TreeNode()
+        tree.attribute = best_attribute
+        used_attributes.add(best_attribute)
 
-    pass
+        # Splitting the data based on the best attribute and creating the child node
+        for value in get_unique_values(data, best_attribute):
+            subset = data[data[best_attribute] == value]
+            child = build_tree(subset, used_attributes.copy())
+            tree.children[value] = child
 
+        return tree
+    
+    # Helper Functions
+    def all_same_class(data):
+        """
+        This is the function to check if all the data is the same class
+        """
+        return len(data.iloc[:,-1].unique()) == 1
+    
+    def get_majority_class(data):
+        """
+        Returns the most common class in the data
+        """
+        return data.iloc[:,-1].mode()[0]
+    
+    def find_best_attribute(data, used_attributes):
+        """
+        This is the function to find the best attribute
+        """
+        best_gain = -1
+        best_attribute = None
+        for attribute in data.columns[:-1]:
+            if attribute in used_attributes:
+                continue
+            gain = information_gain(data, attribute)
+            if gain > best_gain:
+                best_gain = gain
+                best_attribute = attribute
+        return best_attribute
+    
+    def get_unique_values(data, attribute):
+        """
+        This is the function to get unique values
+        """
+        return data[attribute].unique()
+    
+    def information_gain(data, attribute):
+        """
+        This is the function to calculate the information gain
+        """
+        entropy = calculate_entropy(data)
+        values = data[attribute].unique()
+        for value in values:
+            subset = data[data[attribute] == value]
+            entropy -= len(subset) / len(data) * calculate_entropy(subset)
+        return entropy
+    
+    def calculate_entropy(data):
+        """
+        This is the function to calculate entropy
+        """
+        entropy = 0
+        values = data.iloc[:,-1].unique()
+        for value in values:
+            p = len(data[data.iloc[:,-1] == value]) / len(data)
+            if p > 0:  # Avoid log(0)
+                entropy -= p * math.log2(p)
+        return entropy
+    
+    def save_tree(node, file, depth=0):
+        """
+        Save the tree to a file in a readable format
+        """
+        if node.label is not None:
+            file.write("\t" * depth + "Label: " + str(node.label) + "\n")
+        else:
+            file.write("\t" * depth + "Attribute: " + str(node.attribute) + "\n")
+            for value, child in node.children.items():
+                file.write("\t" * (depth + 1) + "Value: " + str(value) + "\n")
+                save_tree(child, file, depth + 2)
+    
+    decision_tree = build_tree(training_data)
 
+    with open(model, "w") as model_file:
+        save_tree(decision_tree, model_file)
 
 def DTpredict(data, model, prediction):
     """
@@ -56,7 +162,6 @@ def DTpredict(data, model, prediction):
     ...
     """
     # implement your code here
-
 
     pass
 
@@ -117,7 +222,7 @@ def main():
         outPerf = options.output
         if predictionLabel == '' or trueLabel == '' or outPerf == '':
             showHelper()
-        EvaNB(predictionLabel,trueLabel, outPerf)
+        EvaDT(predictionLabel,trueLabel, outPerf)
     pass
 
 def showHelper():
