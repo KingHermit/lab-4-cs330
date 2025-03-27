@@ -36,122 +36,147 @@ class TreeNode:
 
 def DTtrain(data, model):
     """
-    This is the function for training a decision tree model
-    First is to read the training data, 
-    and then build the decision tree model
+    Robust training function that generates complete decision trees
     """
-    training_data = pd.read_csv(data)
+    datamap = {}
+    attvalues = {}
+    atts = []
+    
+    with open(data, 'r') as file:
+        first_line = file.readline().strip()
+        if first_line.startswith('#'):
+            first_line = first_line[1:]
+        atts = first_line.split('|')
+        numAtts = len(atts) - 1  
+ 
+        for a in atts:
+            attvalues[a] = set()
 
-    def build_tree(data, used_attributes=None):
-        """
-        This is the function to build the decision tree
-        """
-        if used_attributes is None:
-            used_attributes = set()
-
-        if len(data) == 0:
-            node = TreeNode()
-            node.label = get_majority_class(training_data)
-            return node
-
-        if all_same_class(data):
-            node = TreeNode()
-            node.label = data.iloc[0, -1]
-            return node
-
-        # Finding the best attribute to split the data
-        best_attribute = find_best_attribute(data, used_attributes)
-        if best_attribute is None:
-            node = TreeNode()
-            node.label = get_majority_class(data)
-            return node
-
-        tree = TreeNode()
-        tree.attribute = best_attribute
-        used_attributes.add(best_attribute)
-
-        # Splitting the data based on the best attribute and creating the child node
-        for value in get_unique_values(data, best_attribute):
-            subset = data[data[best_attribute] == value]
-            child = build_tree(subset, used_attributes.copy())
-            tree.children[value] = child
-
-        return tree
-
-    # Helper Functions
-    def all_same_class(data):
-        """
-        This is the function to check if all the data is the same class
-        """
-        return len(data.iloc[:, -1].unique()) == 1
-
-    def get_majority_class(data):
-        """
-        Returns the most common class in the data
-        """
-        return data.iloc[:, -1].mode()[0]
-
-    def find_best_attribute(data, used_attributes):
-        """
-        This is the function to find the best attribute
-        """
-        best_gain = -1
-        best_attribute = None
-        for attribute in data.columns[:-1]:
-            if attribute in used_attributes:
+        for line in file:
+            parts = line.strip().split()
+            if not parts:
                 continue
-            gain = information_gain(data, attribute)
+                
+            dataclass = parts[0]
+            datapoint = parts[1:]
+
+            attvalues[atts[0]].add(dataclass)
+            for i in range(numAtts):
+                attvalues[atts[i+1]].add(datapoint[i])
+
+            if dataclass not in datamap:
+                datamap[dataclass] = []
+            datamap[dataclass].append(datapoint)
+
+    for a in attvalues:
+        attvalues[a] = sorted(attvalues[a])
+    
+    numClasses = len(datamap)
+
+    def build_tree(node_data, free_attrs):
+        class_counts = {cls: len(dpoints) for cls, dpoints in node_data.items()}
+        total = sum(class_counts.values())
+
+        # Stopping conditions
+        if total == 0:
+            node = TreeNode()
+            node.label = "undefined"
+            return node
+            
+        if len(class_counts) == 1:
+            node = TreeNode()
+            node.label = next(iter(class_counts.keys()))
+            return node
+
+        if not any(free_attrs):
+            node = TreeNode()
+            node.label = max(class_counts.items(), key=lambda x: x[1])[0]
+            return node
+
+        best_att = None
+        best_gain = -1
+        best_att_idx = -1
+        
+        for i, att in enumerate(free_attrs):
+            if att is None:
+                continue
+                
+            vals = attvalues[att]
+            partition = [[0]*numClasses for _ in range(len(vals))]
+            class_idx = {cls: idx for idx, cls in enumerate(attvalues[atts[0]])}
+            
+            for cls, dpoints in node_data.items():
+                for dp in dpoints:
+                    val_idx = vals.index(dp[i])
+                    partition[val_idx][class_idx[cls]] += 1
+            
+            part_total = sum(sum(row) for row in partition)
+            if part_total == 0:
+                continue
+                
+            total_entropy = 0
+            for row in partition:
+                row_sum = sum(row)
+                if row_sum > 0:
+                    total_entropy += (row_sum/part_total) * entropy(row)
+            
+            gain = entropy(list(class_counts.values())) - total_entropy
             if gain > best_gain:
                 best_gain = gain
-                best_attribute = attribute
-        return best_attribute
+                best_att = att
+                best_att_idx = i
 
-    def get_unique_values(data, attribute):
-        """
-        This is the function to get unique values
-        """
-        return data[attribute].unique()
+        if best_att is None:
+            node = TreeNode()
+            node.label = max(class_counts.items(), key=lambda x: x[1])[0]
+            return node
+            
+        node = TreeNode()
+        node.attribute = best_att
+        free_attrs[best_att_idx] = None
+        
+        for val in attvalues[best_att]:
+            subset = {}
+            for cls in node_data:
+                subset[cls] = [dp for dp in node_data[cls] if dp[best_att_idx] == val]
+            
+            if sum(len(d) for d in subset.values()) == 0:
+                child = TreeNode()
+                child.label = max(class_counts.items(), key=lambda x: x[1])[0]
+            else:
+                child = build_tree(subset, free_attrs.copy())
+            
+            node.children[val] = child
+            
+        return node
 
-    def information_gain(data, attribute):
-        """
-        This is the function to calculate the information gain
-        """
-        entropy = calculate_entropy(data)
-        values = data[attribute].unique()
-        for value in values:
-            subset = data[data[attribute] == value]
-            entropy -= len(subset) / len(data) * calculate_entropy(subset)
-        return entropy
+    def entropy(counts):
+        """Safe entropy calculation"""
+        total = sum(counts)
+        if total == 0:
+            return 0
+        return -sum((c/total) * math.log2(c/total) if c != 0 else 0 for c in counts)
 
-    def calculate_entropy(data):
-        """
-        This is the function to calculate entropy
-        """
-        entropy = 0
-        values = data.iloc[:, -1].unique()
-        for value in values:
-            p = len(data[data.iloc[:, -1] == value]) / len(data)
-            if p > 0:  # Avoid log(0)
-                entropy -= p * math.log2(p)
-        return entropy
+    root = build_tree(datamap, atts[1:].copy())
 
-    def save_tree(node, file, depth=0):
-        """
-        Save the tree to a file in a readable format
-        """
-        if node.label is not None:
-            file.write("\t" * depth + "Label: " + str(node.label) + "\n")
-        else:
-            file.write("\t" * depth + "Attribute: " + str(node.attribute) + "\n")
-            for value, child in node.children.items():
-                file.write("\t" * (depth + 1) + "Value: " + str(value) + "\n")
-                save_tree(child, file, depth + 2)
-
-    decision_tree = build_tree(training_data)
-
-    with open(model, "w") as model_file:
-        save_tree(decision_tree, model_file)
-
+    with open(model, 'w') as f:
+        f.write(' '.join(atts[1:]) + '\n')
+        
+        def write_node(node):
+            if node.label is not None:
+                f.write(f"[{node.label}]")
+                return
+            
+            f.write(f"{node.attribute} (")
+            for val in attvalues[node.attribute]:
+                if val in node.children:
+                    f.write(f" {val} ")
+                    write_node(node.children[val])
+                else:
+                    f.write(f" {val} [undefined]")
+            f.write(" )")
+        
+        write_node(root)
 
 def DTpredict(data, model, prediction):
     """
