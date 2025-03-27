@@ -68,9 +68,10 @@ def generateTest(numFeatureRange, featureValuesRange, output):
         fh.write("\n")
     fh.close()
     return numRecord
+    # Modified deleteTemFile because original only works on unix based machines
 def deleteTemFile(tobeDeleted):
     if os.path.isfile(tobeDeleted):
-        os.system("rm "+tobeDeleted)
+        os.remove(tobeDeleted)
 
 def verify(input, totalAmount):
     """
