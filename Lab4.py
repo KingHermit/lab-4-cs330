@@ -11,12 +11,15 @@
 
  Creativity: anything extra that you added to the lab
 
- Instructions: After a lot of practice in Python, in this lab, you are going to design the program for decision tree and implement it from scrath! Don't be panic, you still have some reference, actually you are going to translate the JAVA code to Python! The format should be similar to Lab 2!
+ Instructions: After a lot of practice in Python, in this lab, you are going to design the program for decision tree and implement it from scratch! Don't be panic, you still have some reference, actually you are going to translate the JAVA code to Python! The format should be similar to Lab 2!
 
 """
+import numbers
 import sys
 import argparse
 import math
+from collections import deque
+
 import pandas as pd
 import os
 
@@ -191,124 +194,94 @@ def DTpredict(data, model, prediction):
     """
 
     # implement your code here
-    def __init__(self):
-        self.root = None
-        self.att_arr = []
-        self.predictions = []
 
-    def read_model(modelFile):
-        """Reads the decision tree model from the file"""
-        try:
-            with open(modelFile, "r") as file:
-                atts = file.readline().strip().split()
-                att_arr = atts
-                root = read_node(file)
-                return att_arr, root
-        except IOError as e:
-            print(f"Error reading model: {e}")
-            exit(1)
+    def load_model(modelfile):
+        """Loads model file into (attributes, root_node)"""
+        with open(modelfile, 'r') as f:
+            # First line is attributes
+            atts = f.readline().strip().split()
 
-    def read_node(inFile):
-        """Recursively builds tree from the file"""
-        # read until next token (handles possible line breaks)
-        while True:
-            line = inFile.readline()
-            print(line)
-            if not line:
-                print("End of file here 1")
-                break  # end of file
-            tokens = line.strip().split()
-            if not tokens:
-                continue  # skip empty lines
+            # Read remaining content
+            content = f.read().replace('\n', ' ')
+            tokens = deque(content.split())
+            return atts, parse_tree(tokens)
 
-            for token in tokens:
-                if token.startswith('['):  # build leaf node
-                    new = TreeNode()
-                    new.label = token[1:-1]
-                    return new
-                elif token == ')':  # end of current node's children
-                    continue
-                else:  # internal node
-                    # create empty node and set attribute
-                    node = TreeNode()
-                    node.attribute = token
+    def parse_tree(tokens):
+        """Parses tree structure from tokens"""
+        if not tokens:
+            return None
 
-                    # The next token should be '(' to start children
-                    next_token = None
-                    while True:
-                        if not tokens:  # read next line
-                            line = inFile.readline()
-                            if not line:
-                                break
-                            tokens = line.strip().split()
-                            if not tokens:
-                                continue
-                        next_token = tokens.pop(0)
-                        if next_token == '(':
-                            break
+        token = tokens.popleft()
 
-                    # read child nodes until it reaches ')'
-                    val = None
-                    while True:
-                        if not tokens:
-                            line = inFile.readline()
-                            if not line:
-                                print("End of file here 2")
-                                break
-                            tokens = line.strip().split()
-                            if not tokens:
-                                continue
-                        val = tokens.pop(0)
-                        if val == ')':
-                            break
-                        # value is followed by a child node
-                        child_node = read_node(inFile)
-                        node.children[val] = child_node
+        # Leaf node case
+        if token.startswith('['):
+            node = TreeNode()
+            node.label = token[1:-1]  # Remove brackets
+            return node
 
-                    return node
+        # Internal node case
+        node = TreeNode()
+        node.attribute = token
 
-        raise ValueError("Unexpected end of file while parsing node")
+        # Must have opening parenthesis
+        if not tokens or tokens[0] != '(':
+            raise ValueError(f"Expected '(' after {token}, got {tokens[0] if tokens else 'EOF'}")
+        tokens.popleft()
 
-    def trace_tree(node, data, att_arr):
-        """Traverses tree to make prediction for one data instance"""
-        if node.label is not None:
-            return node.label
-        att = node.attribute
-        val = data[att_arr.index(att)]
-        t = node.children.get(val)
-        return trace_tree(t, data, att_arr)
+        # Process all children until closing parenthesis
+        while tokens and tokens[0] != ')':
+            value = tokens.popleft()
+            child = parse_tree(tokens)
+            node.children[value] = child
 
-    # Main execution flow- combination of methods predictFromModel and savePredictions.
+        # Consume closing parenthesis
+        if tokens:
+            tokens.popleft()
 
+        return node
+
+    def predict_instance(root, atts, instance):
+        """Predicts class for a single instance"""
+        node = root
+        while node.label is None:
+            try:
+                # Get attribute index
+                att_index = atts.index(node.attribute)
+                # Get value for this attribute
+                value = instance[att_index]
+                # Move to corresponding child node
+                node = node.children[value]
+            except (ValueError, KeyError) as e:
+                # Handle missing attributes or values
+                return "undefined"
+        return node.label
+
+    # Main execution
     try:
         # 1. Load model
-        att_arr, root = read_model(model)
+        atts, root = load_model(model)
 
-        # 2. Read test data and make predictions
+        # 2. Process test data
         predictions = []
-        with open(data, "r") as testfile:
-            for line in testfile:
-                test_data = line.strip().split()
-                if not test_data:
+        with open(data, 'r') as f:
+            for line in f:
+                parts = line.strip().split()
+                if not parts:
                     continue
+                # Skip class label (first column) if present
+                instance = parts[-len(atts):] if len(parts) > len(atts) else parts
+                if len(instance) != len(atts):
+                    raise ValueError(f"Instance has {len(instance)} features, expected {len(atts)}")
+                predictions.append(predict_instance(root, atts, instance))
 
-                test_data = test_data[1:]   # skip first element; 'consume -1' and take the rest
-                if len(test_data) != len(att_arr):
-                    raise ValueError("Test data doesn't match model attributes")
+        # 3. Save predictions
+        with open(prediction, 'w') as f:
+            f.write('\n'.join(predictions))
 
-                pred = trace_tree(root, data, att_arr)
-                predictions.append(pred)
-
-        # 3. Save predictions to file
-        with open(prediction, "w") as outfile:
-            for pred in predictions:
-                outfile.write(f"{pred}\n")
-
-        # 4. Return successful status
         return True
 
     except Exception as e:
-        print(f"Error during prediction: {e}")
+        print(f"Prediction error: {e}")
         return False
 
 

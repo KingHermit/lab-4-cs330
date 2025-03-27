@@ -1,0 +1,1 @@
+In total, there are 3000 predictions. 2327 are correct and 673 are incorrect. The percentage is 0.7756666666666666
